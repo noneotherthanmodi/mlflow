@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
 
 
-# mlflow ui --backend-store-uri file:C:\Users\uditm\AppData\Roaming\zenml\local_stores\67582014-01db-4e40-8b68-1346db0156d8\mlruns
+# mlflow ui --backend-store-uri "file:C:\Users\uditm\AppData\Roaming\zenml\local_stores\67582014-01db-4e40-8b68-1346db0156d8\mlruns"
 
 
 
