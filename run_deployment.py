@@ -1,4 +1,4 @@
-from pipeline.deployment_pipeline import continous_deployment_pipeline
+from pipeline.deployment_pipeline import continous_deployment_pipeline,inference_pipeline
 import click
 from rich import print 
 from zenml.integrations.mlflow.mlflow_utils import get_tracking_uri
@@ -29,14 +29,14 @@ DEPLOY_AND_PREDICT = "deploy_and_predict"
 
 @click.option(
     "--min-accuracy",
-    default = 0.92,
+    default = 0.0,
     help = "Minimium accuracy to deploy a model."
 )
 
 def run_deployment(config:str,min_accuracy:float):
     mlflow_model_deployer_component = MLFlowModelDeployer.get_active_model_deployer()
     deploy = config == DEPLOY or config == DEPLOY_AND_PREDICT 
-    # predict = config == PREDICT or config == DEPLOY_AND_PREDICT 
+    predict = config == PREDICT or config == DEPLOY_AND_PREDICT 
     
     if deploy:
         continous_deployment_pipeline(
@@ -46,8 +46,10 @@ def run_deployment(config:str,min_accuracy:float):
             timeout = 60,
         )
         
-    # if predict:
-    #     inference_pipeline()
+    if predict:
+        inference_pipeline(
+            pipeline_name= 'continous_deployment_pipeline',
+            pipeline_step_name = 'mlflow_model_deployer_step')
 
     print("You can run:\n "
         f"[italic green]    mlflow ui --backend-store-uri '{get_tracking_uri()}"

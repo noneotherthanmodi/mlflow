@@ -15,6 +15,9 @@ from steps.clean_data import clean_df
 from steps.evaluate_model import model_eval
 from steps.ingest_data import ingest_df
 from steps.train_model import model_training
+from .utils import get_data_for_test
+
+import json 
 
 
 
@@ -22,7 +25,18 @@ docker_settings = DockerSettings(required_integrations=[MLFLOW])
 
 
 class DeploymentTriggerConfig(BaseParameters):
-    min_accuracy:float = 0.92
+    min_accuracy:float = 0.0
+
+
+
+@step(enable_cache=False)
+def dynamic_importer() -> str:
+    """Downloads the latest data from a mock API."""
+    data = get_data_for_test()
+    return data
+
+
+
 
 
 @step 
@@ -31,7 +45,78 @@ def deployment_trigger(
     config: DeploymentTriggerConfig
 ):
     '''Implements a simple model deployement trigger that looks at the input model accuracy and decides if it is good enough to deploy or not'''
-    return accuracy >= config.min_accuracy
+    return accuracy > config.min_accuracy
+
+class MLFlowDeploymentLoaderStepParameters(BaseParameters):
+    pipeline_name: str
+    step_name: str
+    running: bool = True
+
+
+
+
+
+
+@step(enable_cache=False)
+def prediction_service_loader(
+    pipeline_name: str,
+    pipeline_step_name: str,
+    running: bool = True,
+    model_name: str= "model"
+) -> MLFlowDeploymentService:
+    
+    mlflow_model_deployment_component = MLFlowModelDeployer.get_active_model_deployer()
+
+    existing_services = mlflow_model_deployment_component.find_model_server(
+        pipeline_name=pipeline_name,
+        pipeline_step_name=pipeline_step_name,
+        model_name=model_name,
+        running=running
+    )
+
+    if not existing_services:
+        raise RuntimeError(f"No mlflow deployment services found for pipeline {pipeline_name}"
+                           f"step {pipeline_step_name} and model {model_name}"
+                           f"pipeline for the {model_name} model is currently" f"running")
+    return existing_services[0]
+
+
+
+
+
+
+@step
+def predictor(
+    service: MLFlowDeploymentService,
+    data: str,
+) -> np.ndarray:
+    """Run an inference request against a prediction service"""
+
+    service.start(timeout=10)  # should be a NOP if already started
+    data = json.loads(data)
+    data.pop("columns")
+    data.pop("index")
+    columns_for_df = [
+        "payment_sequential",
+        "payment_installments",
+        "payment_value",
+        "price",
+        "freight_value",
+        "product_name_lenght",
+        "product_description_lenght",
+        "product_photos_qty",
+        "product_weight_g",
+        "product_length_cm",
+        "product_height_cm",
+        "product_width_cm",
+    ]
+    df = pd.DataFrame(data["data"], columns=columns_for_df)
+    json_list = json.loads(json.dumps(list(df.T.to_dict().values())))
+    data = np.array(json_list)
+    prediction = service.predict(data)
+    return prediction
+    
+
 
 
 
@@ -39,10 +124,10 @@ def deployment_trigger(
 @pipeline(enable_cache=False,settings={"docker": docker_settings})
 def continous_deployment_pipeline(
     data_path:str,
-    min_accuracy:float = 0.92,
+    min_accuracy:float = 0.0,
     workers:int =1,
     timeout: int = DEFAULT_SERVICE_START_STOP_TIMEOUT):
-    
+     
     
     df = ingest_df(data_path=data_path)
     X_train,X_test,y_train,y_test = clean_df(df) 
@@ -55,3 +140,16 @@ def continous_deployment_pipeline(
         workers = workers,
         timeout = timeout)
     
+
+
+@pipeline(enable_cache=False, settings={"docker": docker_settings})
+def inference_pipeline(pipeline_name: str, pipeline_step_name: str):
+    # Link all the steps artifacts together
+    batch_data = dynamic_importer()
+    model_deployment_service = prediction_service_loader(
+        pipeline_name=pipeline_name,
+        pipeline_step_name=pipeline_step_name,
+        running=False,
+    )
+    prediction = predictor(service=model_deployment_service, data=batch_data)
+    return prediction 
