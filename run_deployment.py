@@ -43,7 +43,8 @@ def run_deployment(config:str,min_accuracy:float):
             data_path = "D:\mlOps\dataset\olist_customers_dataset.csv",
             min_accuracy=min_accuracy,
             workers = 3,
-            timout = 60)
+            timeout = 60,
+        )
         
     # if predict:
     #     inference_pipeline()
